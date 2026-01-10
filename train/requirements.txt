@@ -1,0 +1,26 @@
+# VLA Training Requirements
+
+# Core ML libraries
+torch>=2.0.0
+transformers>=4.40.0
+datasets>=2.18.0
+accelerate>=0.28.0
+
+# Efficient fine-tuning
+peft>=0.10.0
+bitsandbytes>=0.42.0
+
+# Image processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# LeRobot for SmolVLA (optional)
+# lerobot>=0.1.0
+
+# Utilities
+numpy>=1.24.0
+tqdm>=4.65.0
+wandb>=0.16.0  # For logging
+
+# Flash attention (optional, for faster training)
+# flash-attn>=2.5.0
