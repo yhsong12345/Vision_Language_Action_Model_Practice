@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 import numpy as np
 from tqdm import tqdm
 
@@ -319,28 +319,310 @@ def simple_expert_policy(env_name: str = "CartPole-v1"):
         raise ValueError(f"No expert policy for {env_name}")
 
 
-if __name__ == "__main__":
-    print("DAgger Trainer")
-    print("Interactive imitation learning with dataset aggregation")
+class VLADAgger:
+    """
+    DAgger for VLA models.
 
-    # Quick test
-    try:
-        import gymnasium as gym
+    Interactive imitation learning with human expert corrections
+    for vision-language-action models.
+    """
 
-        env = gym.make("CartPole-v1")
-        expert = simple_expert_policy("CartPole-v1")
+    def __init__(
+        self,
+        model,
+        expert_fn,
+        config: Optional[ILConfig] = None,
+    ):
+        """
+        Args:
+            model: VLA model to train
+            expert_fn: Expert function(observation) -> action
+            config: Training configuration
+        """
+        if config is None:
+            config = ILConfig.dagger()
 
-        trainer = DAgger(
-            env=env,
-            expert_policy=expert,
-            config=ILConfig(
-                dagger_iterations=3,
-                dagger_episodes_per_iter=10,
-                bc_epochs=20,
-            ),
+        self.model = model
+        self.expert_fn = expert_fn
+        self.config = config
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = self.model.to(self.device)
+
+        # Optimizer
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=config.learning_rate,
+            weight_decay=0.01,
         )
 
-        print("DAgger trainer created successfully")
+        # DAgger params
+        self.num_iterations = config.dagger_iterations
+        self.episodes_per_iter = config.dagger_episodes_per_iter
+        self.beta_schedule = config.dagger_beta_schedule
+        self.initial_beta = config.dagger_initial_beta
 
-    except ImportError:
-        print("Gymnasium not installed")
+        # Data buffers
+        self.data_buffer = []
+
+        os.makedirs(config.output_dir, exist_ok=True)
+
+    def get_beta(self, iteration: int) -> float:
+        """Get beta value for current iteration."""
+        if self.beta_schedule == "constant":
+            return self.initial_beta
+        elif self.beta_schedule == "linear":
+            return max(0, self.initial_beta * (1 - iteration / self.num_iterations))
+        elif self.beta_schedule == "exponential":
+            return self.initial_beta * (0.9 ** iteration)
+        return self.initial_beta
+
+    def collect_data(
+        self,
+        dataloader,
+        beta: float,
+        num_samples: int = 100,
+    ) -> List[Dict]:
+        """Collect data using beta-mixture of policy and expert."""
+        self.model.eval()
+        collected = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                if len(collected) >= num_samples:
+                    break
+
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+
+                # Get policy prediction
+                outputs = self.model(
+                    pixel_values=batch["pixel_values"],
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                )
+                policy_action = outputs["predicted_actions"]
+
+                # Get expert action
+                expert_action = self.expert_fn(batch)
+
+                # Use beta-mixture for execution (but always label with expert)
+                for i in range(len(policy_action)):
+                    collected.append({
+                        "pixel_values": batch["pixel_values"][i].cpu(),
+                        "input_ids": batch["input_ids"][i].cpu(),
+                        "attention_mask": batch["attention_mask"][i].cpu(),
+                        "action": expert_action[i].cpu() if torch.is_tensor(expert_action) else torch.tensor(expert_action[i]),
+                    })
+
+        return collected
+
+    def train_epoch(self, dataloader) -> float:
+        """Train one epoch on aggregated data."""
+        self.model.train()
+        total_loss = 0
+        num_batches = 0
+
+        for batch in dataloader:
+            batch = {k: v.to(self.device) for k, v in batch.items()}
+
+            outputs = self.model(
+                pixel_values=batch["pixel_values"],
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                actions=batch["action"],
+            )
+
+            loss = outputs["loss"]
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
+
+            total_loss += loss.item()
+            num_batches += 1
+
+        return total_loss / max(num_batches, 1)
+
+    def train(
+        self,
+        initial_dataloader,
+        num_epochs_per_iter: int = 10,
+    ):
+        """Run DAgger training."""
+        print("=" * 60)
+        print("VLA DAgger Training")
+        print("=" * 60)
+
+        # Initialize with initial data
+        for batch in initial_dataloader:
+            for i in range(len(batch["pixel_values"])):
+                self.data_buffer.append({
+                    k: v[i].cpu() for k, v in batch.items()
+                })
+
+        for iteration in range(self.num_iterations):
+            print(f"\nIteration {iteration + 1}/{self.num_iterations}")
+
+            beta = self.get_beta(iteration)
+            print(f"Beta: {beta:.3f}, Buffer size: {len(self.data_buffer)}")
+
+            # Create dataloader from buffer
+            from torch.utils.data import DataLoader
+
+            class BufferDataset:
+                def __init__(self, buffer):
+                    self.buffer = buffer
+
+                def __len__(self):
+                    return len(self.buffer)
+
+                def __getitem__(self, idx):
+                    return self.buffer[idx]
+
+            buffer_loader = DataLoader(
+                BufferDataset(self.data_buffer),
+                batch_size=self.config.batch_size,
+                shuffle=True,
+                collate_fn=lambda x: {k: torch.stack([d[k] for d in x]) for k in x[0].keys()},
+            )
+
+            # Train on aggregated data
+            for epoch in range(num_epochs_per_iter):
+                loss = self.train_epoch(buffer_loader)
+                if (epoch + 1) % 5 == 0:
+                    print(f"  Epoch {epoch + 1}/{num_epochs_per_iter}, Loss: {loss:.4f}")
+
+            # Collect new data (if not last iteration)
+            if iteration < self.num_iterations - 1:
+                new_data = self.collect_data(initial_dataloader, beta)
+                self.data_buffer.extend(new_data)
+
+        # Save final model
+        self.save(os.path.join(self.config.output_dir, "final_model.pt"))
+
+    def save(self, path: str):
+        """Save model."""
+        torch.save(self.model.state_dict(), path)
+        print(f"Saved model to {path}")
+
+
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="DAgger Training")
+
+    # Environment / Data
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
+    parser.add_argument("--expert_data", type=str, default=None, help="Path to expert data (.npz)")
+
+    # Model
+    parser.add_argument("--model_path", type=str, default=None, help="VLA model path (for VLA DAgger)")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # DAgger params
+    parser.add_argument("--dagger_iterations", type=int, default=10, help="Number of DAgger iterations")
+    parser.add_argument("--dagger_episodes_per_iter", type=int, default=20, help="Episodes per iteration")
+    parser.add_argument("--dagger_beta_schedule", type=str, default="linear",
+                        choices=["constant", "linear", "exponential"], help="Beta schedule")
+    parser.add_argument("--dagger_initial_beta", type=float, default=1.0, help="Initial beta value")
+
+    # Training
+    parser.add_argument("--bc_epochs", type=int, default=20, help="BC epochs per iteration")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./output/dagger", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    print("=" * 60)
+    print("DAgger Training")
+    print("=" * 60)
+
+    # Set seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    # Check if VLA mode
+    if args.model_path is not None:
+        print("VLA DAgger mode")
+
+        from model.vla import VLAModel
+        from model.vla.vla_model import VLAConfig
+        from train.finetune.dataset import RobotDataset
+        from torch.utils.data import DataLoader
+
+        # Load VLA model
+        model_config = VLAConfig()
+        model = VLAModel(model_config)
+
+        if os.path.exists(args.model_path):
+            state_dict = torch.load(args.model_path, map_location="cpu")
+            model.load_state_dict(state_dict, strict=False)
+            print(f"Loaded VLA model from {args.model_path}")
+
+        config = ILConfig(
+            dagger_iterations=args.dagger_iterations,
+            dagger_episodes_per_iter=args.dagger_episodes_per_iter,
+            dagger_beta_schedule=args.dagger_beta_schedule,
+            dagger_initial_beta=args.dagger_initial_beta,
+            bc_epochs=args.bc_epochs,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            output_dir=args.output_dir,
+        )
+
+        # Simple expert that returns ground truth actions
+        def expert_fn(batch):
+            return batch.get("action", torch.zeros(len(batch["pixel_values"]), 7))
+
+        trainer = VLADAgger(model, expert_fn, config=config)
+
+        try:
+            dataset = RobotDataset(dataset_name="lerobot/pusht", max_samples=1000)
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+            trainer.train(dataloader)
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+
+    else:
+        # Standard DAgger mode
+        print(f"Environment: {args.env}")
+
+        import gymnasium as gym
+        env = gym.make(args.env)
+        expert = simple_expert_policy(args.env)
+
+        config = ILConfig(
+            dagger_iterations=args.dagger_iterations,
+            dagger_episodes_per_iter=args.dagger_episodes_per_iter,
+            dagger_beta_schedule=args.dagger_beta_schedule,
+            dagger_initial_beta=args.dagger_initial_beta,
+            bc_epochs=args.bc_epochs,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            output_dir=args.output_dir,
+        )
+
+        trainer = DAgger(env=env, expert_policy=expert, config=config)
+
+        if args.resume:
+            trainer.load(args.resume)
+
+        # Load initial data or collect
+        if args.expert_data and os.path.exists(args.expert_data):
+            data = np.load(args.expert_data)
+            trainer.train(initial_states=data["states"], initial_actions=data["actions"])
+        else:
+            trainer.train()
+
+    print("\nTraining complete!")

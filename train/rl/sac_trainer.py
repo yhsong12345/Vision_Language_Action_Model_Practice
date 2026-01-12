@@ -355,6 +355,76 @@ def train_sac(
     return trainer.policy
 
 
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SAC Training")
+
+    # Environment
+    parser.add_argument("--env", type=str, default="Pendulum-v1", help="Gymnasium environment (continuous)")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # SAC parameters
+    parser.add_argument("--total_timesteps", type=int, default=100000, help="Total training timesteps")
+    parser.add_argument("--sac_tau", type=float, default=0.005, help="Soft update coefficient")
+    parser.add_argument("--sac_buffer_size", type=int, default=1000000, help="Replay buffer size")
+    parser.add_argument("--sac_learning_starts", type=int, default=1000, help="Steps before learning")
+    parser.add_argument("--sac_target_entropy", type=str, default="auto", help="Target entropy")
+    parser.add_argument("--sac_init_temperature", type=float, default=0.2, help="Initial temperature")
+
+    # Training
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument("--discount_gamma", type=float, default=0.99, help="Discount factor")
+
+    # Logging
+    parser.add_argument("--eval_freq", type=int, default=5000, help="Evaluation frequency")
+    parser.add_argument("--save_freq", type=int, default=10000, help="Checkpoint frequency")
+    parser.add_argument("--log_freq", type=int, default=1000, help="Logging frequency")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./output/sac", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    print("SAC Trainer")
-    print("For continuous action space environments")
+    args = parse_args()
+
+    print("=" * 60)
+    print("SAC Training")
+    print("=" * 60)
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    import gymnasium as gym
+    env = gym.make(args.env)
+
+    print(f"Environment: {args.env}")
+    print(f"Total timesteps: {args.total_timesteps}")
+
+    config = RLConfig(
+        algorithm="sac",
+        total_timesteps=args.total_timesteps,
+        sac_tau=args.sac_tau,
+        sac_buffer_size=args.sac_buffer_size,
+        sac_learning_starts=args.sac_learning_starts,
+        sac_target_entropy=args.sac_target_entropy,
+        sac_init_temperature=args.sac_init_temperature,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        discount_gamma=args.discount_gamma,
+        output_dir=args.output_dir,
+    )
+
+    trainer = SACTrainer(env, config=config)
+
+    if args.resume:
+        trainer.load(args.resume)
+
+    trainer.train()
+
+    print("\nTraining complete!")

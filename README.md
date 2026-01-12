@@ -57,7 +57,12 @@ Vision_Language_Model_Practice/
 │   ├── metrics.py            # Success rate, trajectory, action metrics
 │   ├── evaluator.py          # Main evaluation orchestrator
 │   └── benchmark.py          # Benchmark suites
-├── scripts/                  # Utility scripts
+├── scripts/                  # SLURM job submission scripts
+│   ├── run_pretrain.sh       # VLM pretraining (multi-node)
+│   ├── run_finetune.sh       # VLA fine-tuning
+│   ├── run_rl.sh             # RL training (PPO/SAC/GRPO)
+│   ├── run_il.sh             # IL training (BC/DAgger/GAIL)
+│   └── run_eval.sh           # Model evaluation
 ├── requirements.txt          # Python dependencies
 └── setup.py                  # Package setup
 ```
@@ -784,6 +789,132 @@ pip install nuscenes-devkit
 
 ---
 
+## Running Training via SLURM
+
+Each training method has its own SLURM submission script for multi-node distributed training with DeepSpeed ZeRO-3.
+
+### Pretraining
+
+```bash
+# VLM Pretraining (2-stage: alignment + instruction tuning)
+sbatch scripts/run_pretrain.sh --stage alignment --num_epochs 1
+sbatch scripts/run_pretrain.sh --stage instruction --num_epochs 3
+```
+
+### Fine-tuning
+
+```bash
+# VLA supervised fine-tuning
+sbatch scripts/run_finetune.sh --dataset bridge_v2 --num_epochs 50
+```
+
+### Reinforcement Learning
+
+```bash
+# PPO training (default)
+sbatch scripts/run_rl.sh --env CartPole-v1 --total_timesteps 100000
+
+# SAC training (change Python script in run_rl.sh to sac_trainer.py)
+sbatch scripts/run_rl.sh --env Pendulum-v1 --total_timesteps 100000
+
+# GRPO for VLA
+sbatch scripts/run_rl.sh --model_path ./output/vla_model.pt --reward_type smoothness
+```
+
+### Imitation Learning
+
+```bash
+# Behavioral Cloning (default)
+sbatch scripts/run_il.sh --env CartPole-v1 --bc_epochs 100
+
+# Behavioral Cloning for VLA
+sbatch scripts/run_il.sh --model_path ./output/vla_model.pt --bc_epochs 50
+
+# DAgger (change Python script in run_il.sh to dagger.py)
+sbatch scripts/run_il.sh --env CartPole-v1 --dagger_iterations 10
+
+# GAIL (change Python script in run_il.sh to gail.py)
+sbatch scripts/run_il.sh --env CartPole-v1 --total_timesteps 100000
+```
+
+### Evaluation
+
+```bash
+# Evaluate trained model
+sbatch scripts/run_eval.sh --model_path ./output/policy.pt --env CartPole-v1
+```
+
+---
+
+## CLI Arguments Reference
+
+### Behavioral Cloning (`train/il/behavioral_cloning.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--env` | CartPole-v1 | Gymnasium environment |
+| `--expert_data` | None | Path to expert data (.npz) |
+| `--num_expert_episodes` | 50 | Episodes to collect from expert |
+| `--model_path` | None | VLA model path (enables VLA BC mode) |
+| `--bc_epochs` | 100 | Training epochs |
+| `--batch_size` | 64 | Batch size |
+| `--learning_rate` | 1e-4 | Learning rate |
+| `--output_dir` | ./output/bc | Output directory |
+
+### DAgger (`train/il/dagger.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--env` | CartPole-v1 | Gymnasium environment |
+| `--dagger_iterations` | 10 | Number of DAgger iterations |
+| `--dagger_beta_schedule` | linear | Beta schedule (linear, exponential, constant) |
+| `--rollouts_per_iter` | 50 | Rollouts per iteration |
+| `--model_path` | None | VLA model path (enables VLA DAgger mode) |
+
+### GAIL (`train/il/gail.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--env` | CartPole-v1 | Gymnasium environment |
+| `--gail_disc_hidden_dim` | 256 | Discriminator hidden dimension |
+| `--gail_disc_updates` | 5 | Discriminator updates per policy update |
+| `--gail_disc_lr` | 3e-4 | Discriminator learning rate |
+| `--total_timesteps` | 100000 | Total training timesteps |
+| `--model_path` | None | VLA model path (enables VLA GAIL mode) |
+
+### PPO (`train/rl/ppo_trainer.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--env` | CartPole-v1 | Gymnasium environment |
+| `--total_timesteps` | 100000 | Total training timesteps |
+| `--rollout_steps` | 2048 | Steps per rollout |
+| `--ppo_epochs` | 4 | PPO epochs per update |
+| `--ppo_clip_range` | 0.2 | PPO clip range |
+| `--ppo_gae_lambda` | 0.95 | GAE lambda |
+
+### SAC (`train/rl/sac_trainer.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--env` | Pendulum-v1 | Gymnasium environment (continuous only) |
+| `--total_timesteps` | 100000 | Total training timesteps |
+| `--sac_tau` | 0.005 | Soft update coefficient |
+| `--sac_buffer_size` | 1000000 | Replay buffer size |
+| `--sac_learning_starts` | 1000 | Steps before learning |
+
+### GRPO (`train/rl/grpo_trainer.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model_path` | (required) | Path to VLA model |
+| `--grpo_group_size` | 8 | Samples per prompt |
+| `--grpo_kl_coef` | 0.1 | KL divergence coefficient |
+| `--reward_type` | smoothness | Reward function (distance, smoothness) |
+| `--num_epochs` | 10 | Training epochs |
+
+---
+
 ## Quick Start Example
 
 ```python
@@ -822,19 +953,20 @@ model.save_pretrained("./my_vla_model")
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `config/` | 3 | Model, dataset, and training configuration dataclasses |
-| `model/vlm/` | 2 | Vision encoders (SigLIP, CLIP, DINOv2) and projectors |
-| `model/action_head/` | 3 | Action prediction heads (MLP, Diffusion, Transformer) |
-| `model/sensor/` | 3 | Sensor encoders for LiDAR, Radar, IMU |
-| `model/vla/` | 4 | Complete VLA model implementations |
-| `model/fusion/` | 1 | Multi-modal sensor fusion strategies |
-| `train/pretrain/` | 3 | VLM pretraining (alignment + instruction tuning) |
-| `train/finetune/` | 2 | Supervised fine-tuning for VLA |
-| `train/rl/` | 4 | Reinforcement learning trainers (PPO, SAC, GRPO) |
-| `train/il/` | 4 | Imitation learning trainers (BC, DAgger, GAIL) |
-| `train/datasets/` | 5 | Dataset loaders for various robot/driving datasets |
-| `eval/` | 3 | Evaluation metrics and benchmark suites |
-| **Total** | **37** | Complete VLA training framework |
+| `config/` | 4 | Model, dataset, and training configuration dataclasses |
+| `model/vlm/` | 3 | Vision encoders (SigLIP, CLIP, DINOv2) and projectors |
+| `model/action_head/` | 4 | Action prediction heads (MLP, Diffusion, Transformer) |
+| `model/sensor/` | 4 | Sensor encoders for LiDAR, Radar, IMU |
+| `model/vla/` | 5 | Complete VLA model implementations |
+| `model/fusion/` | 2 | Multi-modal sensor fusion strategies |
+| `train/pretrain/` | 4 | VLM pretraining (alignment + instruction tuning) |
+| `train/finetune/` | 3 | Supervised fine-tuning for VLA |
+| `train/rl/` | 5 | Reinforcement learning trainers (PPO, SAC, GRPO) |
+| `train/il/` | 5 | Imitation learning trainers (BC, DAgger, GAIL) + VLA variants |
+| `train/datasets/` | 6 | Dataset loaders for various robot/driving datasets |
+| `eval/` | 4 | Evaluation metrics and benchmark suites |
+| `scripts/` | 5 | SLURM job submission scripts |
+| **Total** | **54** | Complete VLA training framework |
 
 ---
 

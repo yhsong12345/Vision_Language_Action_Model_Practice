@@ -346,6 +346,127 @@ class VLABehavioralCloning:
         print(f"Saved model to {path}")
 
 
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Behavioral Cloning Training")
+
+    # Environment / Data
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
+    parser.add_argument("--expert_data", type=str, default=None, help="Path to expert data (.npz)")
+    parser.add_argument("--num_expert_episodes", type=int, default=50, help="Episodes to collect")
+
+    # Model
+    parser.add_argument("--model_path", type=str, default=None, help="VLA model path (for VLA BC)")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # Training
+    parser.add_argument("--bc_epochs", type=int, default=100, help="Training epochs")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--validation_split", type=float, default=0.2, help="Validation split")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./output/bc", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
+    return parser.parse_args()
+
+
+def create_simple_expert(env_name: str):
+    """Create simple expert policies for common environments."""
+    if env_name == "CartPole-v1":
+        def policy(state):
+            pole_angle = state[2]
+            pole_velocity = state[3]
+            return 1 if pole_angle + 0.1 * pole_velocity > 0 else 0
+        return policy
+    elif env_name == "Pendulum-v1":
+        def policy(state):
+            theta = np.arctan2(state[1], state[0])
+            return np.array([-2.0 * theta - 0.1 * state[2]])
+        return policy
+    else:
+        raise ValueError(f"No simple expert for {env_name}. Provide --expert_data instead.")
+
+
 if __name__ == "__main__":
-    print("Behavioral Cloning")
-    print("Simple supervised imitation learning")
+    args = parse_args()
+
+    print("=" * 60)
+    print("Behavioral Cloning Training")
+    print("=" * 60)
+
+    # Set seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    # Check if VLA mode
+    if args.model_path is not None:
+        print("VLA Behavioral Cloning mode")
+
+        from model.vla import VLAModel
+        from model.vla.vla_model import VLAConfig
+
+        # Load VLA model
+        model_config = VLAConfig()
+        model = VLAModel(model_config)
+
+        if os.path.exists(args.model_path):
+            state_dict = torch.load(args.model_path, map_location="cpu")
+            model.load_state_dict(state_dict, strict=False)
+            print(f"Loaded VLA model from {args.model_path}")
+
+        config = ILConfig(
+            bc_epochs=args.bc_epochs,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            output_dir=args.output_dir,
+        )
+
+        trainer = VLABehavioralCloning(model, config=config)
+
+        # Load dataset
+        from train.finetune.dataset import RobotDataset
+
+        try:
+            dataset = RobotDataset(dataset_name="lerobot/pusht", max_samples=1000)
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+            trainer.train(dataloader)
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+            print("Please provide a valid robot dataset")
+
+    else:
+        # Standard BC mode
+        print(f"Environment: {args.env}")
+
+        import gymnasium as gym
+        env = gym.make(args.env)
+
+        config = ILConfig(
+            bc_epochs=args.bc_epochs,
+            bc_validation_split=args.validation_split,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            num_expert_episodes=args.num_expert_episodes,
+            output_dir=args.output_dir,
+        )
+
+        trainer = BehavioralCloning(env, config=config)
+
+        if args.resume:
+            trainer.load(args.resume)
+
+        # Load or collect expert data
+        if args.expert_data and os.path.exists(args.expert_data):
+            data = np.load(args.expert_data)
+            states, actions = data["states"], data["actions"]
+            print(f"Loaded {len(states)} expert transitions from {args.expert_data}")
+            trainer.train(states=states, actions=actions)
+        else:
+            expert_policy = create_simple_expert(args.env)
+            trainer.train(expert_policy=expert_policy, num_expert_episodes=args.num_expert_episodes)
+
+    print("\nTraining complete!")

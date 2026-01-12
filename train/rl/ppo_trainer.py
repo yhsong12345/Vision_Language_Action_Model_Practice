@@ -270,15 +270,79 @@ def train_ppo(
     return trainer.policy
 
 
-if __name__ == "__main__":
-    print("PPO Trainer")
-    print("Usage: python ppo_trainer.py")
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
 
-    # Quick test
-    try:
-        import gymnasium as gym
-        env = gym.make("CartPole-v1")
-        trainer = PPOTrainer(env)
-        print("PPO trainer created successfully")
-    except ImportError:
-        print("Gymnasium not installed")
+    parser = argparse.ArgumentParser(description="PPO Training")
+
+    # Environment
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # PPO parameters
+    parser.add_argument("--total_timesteps", type=int, default=100000, help="Total training timesteps")
+    parser.add_argument("--rollout_steps", type=int, default=2048, help="Steps per rollout")
+    parser.add_argument("--ppo_epochs", type=int, default=4, help="PPO epochs per update")
+    parser.add_argument("--ppo_clip_range", type=float, default=0.2, help="PPO clip range")
+    parser.add_argument("--ppo_gae_lambda", type=float, default=0.95, help="GAE lambda")
+    parser.add_argument("--ppo_value_coef", type=float, default=0.5, help="Value loss coefficient")
+    parser.add_argument("--ppo_entropy_coef", type=float, default=0.01, help="Entropy coefficient")
+
+    # Training
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument("--discount_gamma", type=float, default=0.99, help="Discount factor")
+
+    # Logging
+    parser.add_argument("--eval_freq", type=int, default=5000, help="Evaluation frequency")
+    parser.add_argument("--save_freq", type=int, default=10000, help="Checkpoint frequency")
+    parser.add_argument("--log_freq", type=int, default=1000, help="Logging frequency")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./output/ppo", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    print("=" * 60)
+    print("PPO Training")
+    print("=" * 60)
+
+    # Set seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    import gymnasium as gym
+    env = gym.make(args.env)
+
+    print(f"Environment: {args.env}")
+    print(f"Total timesteps: {args.total_timesteps}")
+
+    config = RLConfig(
+        algorithm="ppo",
+        total_timesteps=args.total_timesteps,
+        rollout_steps=args.rollout_steps,
+        ppo_epochs=args.ppo_epochs,
+        ppo_clip_range=args.ppo_clip_range,
+        ppo_gae_lambda=args.ppo_gae_lambda,
+        ppo_value_coef=args.ppo_value_coef,
+        ppo_entropy_coef=args.ppo_entropy_coef,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        discount_gamma=args.discount_gamma,
+        output_dir=args.output_dir,
+    )
+
+    trainer = PPOTrainer(env, config=config)
+
+    if args.resume:
+        trainer.load(args.resume)
+
+    trainer.train()
+
+    print("\nTraining complete!")

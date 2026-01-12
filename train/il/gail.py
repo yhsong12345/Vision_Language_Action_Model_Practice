@@ -501,6 +501,278 @@ class GAIL(ILTrainer):
         }
 
 
+class VLAGAIL:
+    """
+    GAIL for VLA models.
+
+    Generative Adversarial Imitation Learning for vision-language-action models.
+    Learns a reward function that distinguishes expert from policy trajectories.
+    """
+
+    def __init__(
+        self,
+        model,
+        config: Optional[ILConfig] = None,
+    ):
+        if config is None:
+            config = ILConfig.gail()
+
+        self.model = model
+        self.config = config
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = self.model.to(self.device)
+
+        # Get action dimension from model
+        self.action_dim = 7  # Default robot action dimension
+
+        # Create discriminator for VLA
+        self.discriminator = nn.Sequential(
+            nn.Linear(256 + self.action_dim, config.gail_disc_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.gail_disc_hidden_dim, config.gail_disc_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.gail_disc_hidden_dim, 1),
+            nn.Sigmoid(),
+        ).to(self.device)
+
+        # Feature extractor for images
+        self.feature_extractor = nn.Sequential(
+            nn.AdaptiveAvgPool2d((4, 4)),
+            nn.Flatten(),
+            nn.Linear(3 * 16, 256),
+            nn.ReLU(),
+        ).to(self.device)
+
+        # Optimizers
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        self.policy_optimizer = torch.optim.AdamW(trainable_params, lr=config.learning_rate)
+        self.disc_optimizer = torch.optim.Adam(
+            list(self.discriminator.parameters()) + list(self.feature_extractor.parameters()),
+            lr=config.gail_disc_lr,
+        )
+
+        self.disc_updates = config.gail_disc_updates
+        self.reward_scale = config.gail_reward_scale
+
+        os.makedirs(config.output_dir, exist_ok=True)
+
+    def get_features(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """Extract features from images."""
+        return self.feature_extractor(pixel_values)
+
+    def get_reward(self, features: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Get GAIL reward."""
+        x = torch.cat([features, actions], dim=-1)
+        d = self.discriminator(x)
+        return -torch.log(1 - d + 1e-8) * self.reward_scale
+
+    def update_discriminator(
+        self,
+        expert_batch: Dict[str, torch.Tensor],
+        policy_actions: torch.Tensor,
+    ) -> float:
+        """Update discriminator."""
+        total_loss = 0
+
+        for _ in range(self.disc_updates):
+            expert_features = self.get_features(expert_batch["pixel_values"])
+            expert_actions = expert_batch["action"]
+            policy_features = expert_features.detach()
+
+            expert_x = torch.cat([expert_features, expert_actions], dim=-1)
+            expert_pred = self.discriminator(expert_x)
+            expert_loss = F.binary_cross_entropy(expert_pred, torch.ones_like(expert_pred))
+
+            policy_x = torch.cat([policy_features, policy_actions.detach()], dim=-1)
+            policy_pred = self.discriminator(policy_x)
+            policy_loss = F.binary_cross_entropy(policy_pred, torch.zeros_like(policy_pred))
+
+            loss = expert_loss + policy_loss
+
+            self.disc_optimizer.zero_grad()
+            loss.backward()
+            self.disc_optimizer.step()
+
+            total_loss += loss.item()
+
+        return total_loss / self.disc_updates
+
+    def train(self, expert_dataloader, total_steps: int = 10000):
+        """Run GAIL training."""
+        print("=" * 60)
+        print("VLA GAIL Training")
+        print("=" * 60)
+
+        step = 0
+        best_reward = float("-inf")
+        progress_bar = tqdm(total=total_steps, desc="Training")
+
+        while step < total_steps:
+            for batch in expert_dataloader:
+                if step >= total_steps:
+                    break
+
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+
+                self.model.eval()
+                with torch.no_grad():
+                    outputs = self.model(
+                        pixel_values=batch["pixel_values"],
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                    )
+                policy_actions = outputs["predicted_actions"]
+
+                self.model.train()
+                disc_loss = self.update_discriminator(batch, policy_actions)
+
+                features = self.get_features(batch["pixel_values"])
+                rewards = self.get_reward(features, policy_actions)
+
+                outputs = self.model(
+                    pixel_values=batch["pixel_values"],
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    actions=batch["action"],
+                )
+
+                bc_loss = outputs["loss"]
+                reward_bonus = -rewards.mean()
+                loss = bc_loss + 0.1 * reward_bonus
+
+                self.policy_optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.policy_optimizer.step()
+
+                step += 1
+                progress_bar.update(1)
+
+                if step % 100 == 0:
+                    mean_reward = rewards.mean().item()
+                    progress_bar.set_postfix({"disc_loss": f"{disc_loss:.3f}", "reward": f"{mean_reward:.3f}"})
+                    if mean_reward > best_reward:
+                        best_reward = mean_reward
+                        self.save(os.path.join(self.config.output_dir, "best_model.pt"))
+
+        progress_bar.close()
+        self.save(os.path.join(self.config.output_dir, "final_model.pt"))
+
+    def save(self, path: str):
+        """Save model."""
+        torch.save({
+            "model": self.model.state_dict(),
+            "discriminator": self.discriminator.state_dict(),
+            "feature_extractor": self.feature_extractor.state_dict(),
+        }, path)
+        print(f"Saved model to {path}")
+
+
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="GAIL Training")
+
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
+    parser.add_argument("--expert_data", type=str, default=None, help="Path to expert data (.npz)")
+    parser.add_argument("--num_expert_episodes", type=int, default=50, help="Episodes to collect")
+    parser.add_argument("--model_path", type=str, default=None, help="VLA model path")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+    parser.add_argument("--gail_disc_hidden_dim", type=int, default=256)
+    parser.add_argument("--gail_disc_updates", type=int, default=5)
+    parser.add_argument("--gail_disc_lr", type=float, default=3e-4)
+    parser.add_argument("--gail_reward_scale", type=float, default=1.0)
+    parser.add_argument("--total_timesteps", type=int, default=100000)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument("--output_dir", type=str, default="./output/gail")
+    parser.add_argument("--seed", type=int, default=42)
+
+    return parser.parse_args()
+
+
+def create_simple_expert(env_name: str):
+    """Create simple expert policies for common environments."""
+    if env_name == "CartPole-v1":
+        def policy(state):
+            return 1 if state[2] + 0.1 * state[3] > 0 else 0
+        return policy
+    raise ValueError(f"No simple expert for {env_name}. Provide --expert_data instead.")
+
+
 if __name__ == "__main__":
-    print("GAIL Trainer")
-    print("Generative Adversarial Imitation Learning")
+    args = parse_args()
+
+    print("=" * 60)
+    print("GAIL Training")
+    print("=" * 60)
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    if args.model_path is not None:
+        print("VLA GAIL mode")
+
+        from model.vla import VLAModel
+        from model.vla.vla_model import VLAConfig
+        from train.finetune.dataset import RobotDataset
+        from torch.utils.data import DataLoader
+
+        model_config = VLAConfig()
+        model = VLAModel(model_config)
+
+        if os.path.exists(args.model_path):
+            state_dict = torch.load(args.model_path, map_location="cpu")
+            model.load_state_dict(state_dict, strict=False)
+            print(f"Loaded VLA model from {args.model_path}")
+
+        config = ILConfig(
+            gail_disc_hidden_dim=args.gail_disc_hidden_dim,
+            gail_disc_updates=args.gail_disc_updates,
+            gail_disc_lr=args.gail_disc_lr,
+            gail_reward_scale=args.gail_reward_scale,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            output_dir=args.output_dir,
+        )
+
+        trainer = VLAGAIL(model, config=config)
+
+        try:
+            dataset = RobotDataset(dataset_name="lerobot/pusht", max_samples=1000)
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+            trainer.train(dataloader, total_steps=args.total_timesteps)
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+
+    else:
+        print(f"Environment: {args.env}")
+
+        import gymnasium as gym
+        env = gym.make(args.env)
+
+        config = ILConfig(
+            gail_disc_hidden_dim=args.gail_disc_hidden_dim,
+            gail_disc_updates=args.gail_disc_updates,
+            gail_disc_lr=args.gail_disc_lr,
+            gail_reward_scale=args.gail_reward_scale,
+            learning_rate=args.learning_rate,
+            batch_size=args.batch_size,
+            output_dir=args.output_dir,
+        )
+
+        trainer = GAIL(env, config=config)
+
+        if args.resume:
+            trainer.load(args.resume)
+
+        if args.expert_data and os.path.exists(args.expert_data):
+            data = np.load(args.expert_data)
+            trainer.train(expert_states=data["states"], expert_actions=data["actions"], total_timesteps=args.total_timesteps)
+        else:
+            expert_policy = create_simple_expert(args.env)
+            trainer.train(expert_policy=expert_policy, num_expert_episodes=args.num_expert_episodes, total_timesteps=args.total_timesteps)
+
+    print("\nTraining complete!")

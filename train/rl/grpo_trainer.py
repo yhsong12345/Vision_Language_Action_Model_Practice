@@ -394,6 +394,121 @@ class SimpleRewardFunction:
             return np.random.randn()
 
 
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="GRPO Training for VLA")
+
+    # Model
+    parser.add_argument("--model_path", type=str, required=True, help="Path to VLA model")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # GRPO parameters
+    parser.add_argument("--grpo_group_size", type=int, default=8, help="Samples per prompt")
+    parser.add_argument("--grpo_kl_coef", type=float, default=0.1, help="KL divergence coefficient")
+    parser.add_argument("--num_epochs", type=int, default=10, help="Training epochs")
+
+    # Training
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+    parser.add_argument("--learning_rate", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay")
+    parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm")
+
+    # Data
+    parser.add_argument("--dataset", type=str, default="lerobot/pusht", help="Dataset name")
+    parser.add_argument("--max_samples", type=int, default=1000, help="Maximum samples")
+
+    # Reward
+    parser.add_argument("--reward_type", type=str, default="smoothness",
+                        choices=["distance", "smoothness"], help="Reward function type")
+
+    # Output
+    parser.add_argument("--output_dir", type=str, default="./output/grpo", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    print("GRPO Trainer")
-    print("Group Relative Policy Optimization for VLA models")
+    args = parse_args()
+
+    print("=" * 60)
+    print("GRPO Training for VLA")
+    print("=" * 60)
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    # Import VLA model
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from model.vla import VLAModel
+    from model.vla.vla_model import VLAConfig
+
+    # Load VLA model
+    model_config = VLAConfig()
+    model = VLAModel(model_config)
+
+    if os.path.exists(args.model_path):
+        state_dict = torch.load(args.model_path, map_location="cpu")
+        model.load_state_dict(state_dict, strict=False)
+        print(f"Loaded VLA model from {args.model_path}")
+    else:
+        print(f"Warning: Model path {args.model_path} not found, using random init")
+
+    config = RLConfig(
+        algorithm="grpo",
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        max_grad_norm=args.max_grad_norm,
+        grpo_group_size=args.grpo_group_size,
+        grpo_kl_coef=args.grpo_kl_coef,
+        batch_size=args.batch_size,
+        output_dir=args.output_dir,
+    )
+
+    reward_fn = SimpleRewardFunction(reward_type=args.reward_type)
+    trainer = GRPOTrainer(model, reward_fn, config=config)
+
+    if args.resume:
+        trainer.load(args.resume)
+
+    # Load dataset
+    try:
+        from train.finetune.dataset import RobotDataset
+        from torch.utils.data import DataLoader
+
+        dataset = RobotDataset(dataset_name=args.dataset, max_samples=args.max_samples)
+        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+        print(f"Dataset: {args.dataset}, Samples: {len(dataset)}")
+        trainer.train(dataloader, num_epochs=args.num_epochs)
+
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        print("Creating dummy data for testing...")
+
+        from torch.utils.data import DataLoader, TensorDataset
+
+        dummy_dataset = TensorDataset(
+            torch.randn(100, 3, 224, 224),
+            torch.randint(0, 1000, (100, 32)),
+            torch.ones(100, 32),
+        )
+
+        class DictDataLoader:
+            def __init__(self, loader):
+                self.loader = loader
+
+            def __iter__(self):
+                for pv, ids, mask in self.loader:
+                    yield {"pixel_values": pv, "input_ids": ids, "attention_mask": mask}
+
+            def __len__(self):
+                return len(self.loader)
+
+        dataloader = DictDataLoader(DataLoader(dummy_dataset, batch_size=args.batch_size))
+        trainer.train(dataloader, num_epochs=args.num_epochs)
+
+    print("\nTraining complete!")

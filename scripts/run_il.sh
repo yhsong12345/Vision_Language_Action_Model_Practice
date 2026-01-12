@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=vla_finetune
-#SBATCH --comment="VLA supervised fine-tuning on robot data"
+#SBATCH --job-name=vla_il
+#SBATCH --comment="VLA imitation learning (BC/DAgger/GAIL)"
 #SBATCH --nodelist=cubox01,cubox02,cubox03,cubox04,cubox06,cubox07,cubox10,cubox11
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
@@ -49,7 +49,7 @@ srun --nodes=1 --ntasks=1 -w "$head_node" \
         --main_process_ip "$head_node_ip" \
         --main_process_port "$head_port" \
         --machine_rank 0 \
-    train/finetune/vla_finetuner.py "$@" &
+    train/il/behavioral_cloning.py "$@" &
 sleep 15
 
 # Start worker from 1 (0 is head node)
@@ -65,7 +65,7 @@ for ((i = 1; i <= worker_num; i++)); do
         --main_process_ip "$head_node_ip" \
         --main_process_port "$head_port" \
         --machine_rank "$i" \
-      train/finetune/vla_finetuner.py "$@" &
+      train/il/behavioral_cloning.py "$@" &
     sleep 5
 done
 
