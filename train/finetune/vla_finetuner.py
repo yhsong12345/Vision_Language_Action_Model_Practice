@@ -363,5 +363,248 @@ def finetune_vla(
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="VLA Fine-tuner - Supervised fine-tuning of VLA models on robot manipulation datasets"
+    )
+
+    # Model arguments
+    parser.add_argument(
+        "--vision-model",
+        type=str,
+        default="google/siglip-base-patch16-224",
+        help="Vision encoder model name (default: google/siglip-base-patch16-224)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default="Qwen/Qwen2-1.5B-Instruct",
+        help="LLM model name (default: Qwen/Qwen2-1.5B-Instruct)",
+    )
+    parser.add_argument(
+        "--pretrained-vlm",
+        type=str,
+        default=None,
+        help="Path to pretrained VLM checkpoint (optional)",
+    )
+    parser.add_argument(
+        "--action-dim",
+        type=int,
+        default=7,
+        help="Action dimension (default: 7)",
+    )
+    parser.add_argument(
+        "--action-chunk-size",
+        type=int,
+        default=1,
+        help="Action chunk size for temporal consistency (default: 1)",
+    )
+
+    # Dataset arguments
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="lerobot/pusht",
+        help="Robot dataset name (default: lerobot/pusht)",
+    )
+
+    # Output arguments
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./finetuned_vla",
+        help="Output directory for checkpoints (default: ./finetuned_vla)",
+    )
+
+    # Training arguments
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batch size (default: 8)",
+    )
+    parser.add_argument(
+        "--num-epochs",
+        type=int,
+        default=10,
+        help="Number of epochs (default: 10)",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1e-4,
+        help="Learning rate (default: 1e-4)",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.01,
+        help="Weight decay (default: 0.01)",
+    )
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.1,
+        help="Warmup ratio (default: 0.1)",
+    )
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=1.0,
+        help="Max gradient norm (default: 1.0)",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=1,
+        help="Gradient accumulation steps (default: 1)",
+    )
+
+    # Freezing options
+    parser.add_argument(
+        "--freeze-vision",
+        action="store_true",
+        help="Freeze vision encoder",
+    )
+    parser.add_argument(
+        "--freeze-llm",
+        action="store_true",
+        help="Freeze LLM backbone",
+    )
+
+    # LoRA arguments
+    parser.add_argument(
+        "--use-lora",
+        action="store_true",
+        help="Use LoRA for efficient fine-tuning",
+    )
+    parser.add_argument(
+        "--lora-r",
+        type=int,
+        default=32,
+        help="LoRA rank (default: 32)",
+    )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=64,
+        help="LoRA alpha (default: 64)",
+    )
+    parser.add_argument(
+        "--lora-dropout",
+        type=float,
+        default=0.1,
+        help="LoRA dropout (default: 0.1)",
+    )
+
+    # Hardware arguments
+    parser.add_argument(
+        "--mixed-precision",
+        type=str,
+        default="bf16",
+        choices=["fp32", "fp16", "bf16"],
+        help="Mixed precision mode (default: bf16)",
+    )
+
+    # Logging arguments
+    parser.add_argument(
+        "--logging-steps",
+        type=int,
+        default=10,
+        help="Logging frequency (default: 10)",
+    )
+    parser.add_argument(
+        "--save-steps",
+        type=int,
+        default=500,
+        help="Checkpoint save frequency (default: 500)",
+    )
+    parser.add_argument(
+        "--eval-steps",
+        type=int,
+        default=500,
+        help="Evaluation frequency (default: 500)",
+    )
+    parser.add_argument(
+        "--use-wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        type=str,
+        default="vla-finetuning",
+        help="W&B project name (default: vla-finetuning)",
+    )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="vla_finetune",
+        help="Experiment name (default: vla_finetune)",
+    )
+
+    args = parser.parse_args()
+
+    print("=" * 60)
     print("VLA Fine-tuner")
-    print("Usage: See train/finetune/README.md for examples")
+    print("=" * 60)
+    print(f"Vision Model: {args.vision_model}")
+    print(f"LLM Model: {args.llm_model}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Output Directory: {args.output_dir}")
+    print(f"Action Dim: {args.action_dim}")
+    print(f"Batch Size: {args.batch_size}")
+    print(f"Epochs: {args.num_epochs}")
+    print(f"Learning Rate: {args.learning_rate}")
+    print(f"Freeze Vision: {args.freeze_vision}")
+    print(f"Freeze LLM: {args.freeze_llm}")
+    print(f"Use LoRA: {args.use_lora}")
+    print("=" * 60)
+
+    # Create VLA model
+    from model.vla import VLAModel
+
+    if args.pretrained_vlm:
+        print(f"Loading pretrained VLM from {args.pretrained_vlm}")
+        model = VLAModel.from_pretrained(
+            args.pretrained_vlm,
+            action_dim=args.action_dim,
+            action_chunk_size=args.action_chunk_size,
+        )
+    else:
+        model = VLAModel(
+            vision_model_name=args.vision_model,
+            llm_model_name=args.llm_model,
+            action_dim=args.action_dim,
+            action_chunk_size=args.action_chunk_size,
+            freeze_vision=args.freeze_vision,
+            freeze_llm=args.freeze_llm,
+        )
+
+    # Run fine-tuning
+    finetune_vla(
+        model=model,
+        dataset_name=args.dataset,
+        output_dir=args.output_dir,
+        batch_size=args.batch_size,
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+        max_grad_norm=args.max_grad_norm,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        freeze_vision=args.freeze_vision,
+        freeze_llm=args.freeze_llm,
+        use_lora=args.use_lora,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        mixed_precision=args.mixed_precision,
+        logging_steps=args.logging_steps,
+        save_steps=args.save_steps,
+        eval_steps=args.eval_steps,
+        use_wandb=args.use_wandb,
+        wandb_project=args.wandb_project,
+        experiment_name=args.experiment_name,
+    )

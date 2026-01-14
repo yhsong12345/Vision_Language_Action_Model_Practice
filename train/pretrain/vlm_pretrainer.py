@@ -521,8 +521,180 @@ def pretrain_vlm(
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="VLM Pretrainer - LLaVA-style Vision-Language Model pretraining"
+    )
+
+    # Model arguments
+    parser.add_argument(
+        "--vision-model",
+        type=str,
+        default="google/siglip-base-patch16-224",
+        help="Vision encoder model name (default: google/siglip-base-patch16-224)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default="Qwen/Qwen2-1.5B-Instruct",
+        help="LLM model name (default: Qwen/Qwen2-1.5B-Instruct)",
+    )
+
+    # Dataset arguments
+    parser.add_argument(
+        "--alignment-dataset",
+        type=str,
+        default="liuhaotian/LLaVA-Pretrain",
+        help="Dataset for Stage 1 alignment (default: liuhaotian/LLaVA-Pretrain)",
+    )
+    parser.add_argument(
+        "--instruction-dataset",
+        type=str,
+        default="liuhaotian/LLaVA-Instruct-150K",
+        help="Dataset for Stage 2 instruction tuning (default: liuhaotian/LLaVA-Instruct-150K)",
+    )
+
+    # Output arguments
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./pretrained_vlm",
+        help="Output directory for checkpoints (default: ./pretrained_vlm)",
+    )
+
+    # Training arguments
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batch size for training (default: 8)",
+    )
+    parser.add_argument(
+        "--alignment-epochs",
+        type=int,
+        default=1,
+        help="Number of epochs for Stage 1 alignment (default: 1)",
+    )
+    parser.add_argument(
+        "--instruction-epochs",
+        type=int,
+        default=3,
+        help="Number of epochs for Stage 2 instruction tuning (default: 3)",
+    )
+    parser.add_argument(
+        "--alignment-lr",
+        type=float,
+        default=1e-3,
+        help="Learning rate for Stage 1 alignment (default: 1e-3)",
+    )
+    parser.add_argument(
+        "--instruction-lr",
+        type=float,
+        default=2e-5,
+        help="Learning rate for Stage 2 instruction tuning (default: 2e-5)",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.01,
+        help="Weight decay (default: 0.01)",
+    )
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.1,
+        help="Warmup ratio (default: 0.1)",
+    )
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=1.0,
+        help="Max gradient norm for clipping (default: 1.0)",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=1,
+        help="Gradient accumulation steps (default: 1)",
+    )
+
+    # Hardware arguments
+    parser.add_argument(
+        "--mixed-precision",
+        type=str,
+        default="bf16",
+        choices=["fp32", "fp16", "bf16"],
+        help="Mixed precision mode (default: bf16)",
+    )
+
+    # Logging arguments
+    parser.add_argument(
+        "--logging-steps",
+        type=int,
+        default=10,
+        help="Logging frequency (default: 10)",
+    )
+    parser.add_argument(
+        "--save-steps",
+        type=int,
+        default=1000,
+        help="Checkpoint save frequency (default: 1000)",
+    )
+    parser.add_argument(
+        "--use-wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        type=str,
+        default="vlm-pretraining",
+        help="W&B project name (default: vlm-pretraining)",
+    )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="vlm_pretrain",
+        help="Experiment name (default: vlm_pretrain)",
+    )
+
+    args = parser.parse_args()
+
+    # Convert args to kwargs for pretrain_vlm
+    kwargs = {
+        "batch_size": args.batch_size,
+        "alignment_epochs": args.alignment_epochs,
+        "instruction_epochs": args.instruction_epochs,
+        "alignment_lr": args.alignment_lr,
+        "instruction_lr": args.instruction_lr,
+        "weight_decay": args.weight_decay,
+        "warmup_ratio": args.warmup_ratio,
+        "max_grad_norm": args.max_grad_norm,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "mixed_precision": args.mixed_precision,
+        "logging_steps": args.logging_steps,
+        "save_steps": args.save_steps,
+        "use_wandb": args.use_wandb,
+        "wandb_project": args.wandb_project,
+        "experiment_name": args.experiment_name,
+    }
+
+    print("=" * 60)
     print("VLM Pretrainer")
-    print("Usage: python vlm_pretrainer.py")
-    print("\nThis module implements LLaVA-style VLM pretraining:")
-    print("  Stage 1: Vision-Language Alignment (projector only)")
-    print("  Stage 2: Visual Instruction Tuning (projector + LLM)")
+    print("=" * 60)
+    print(f"Vision Model: {args.vision_model}")
+    print(f"LLM Model: {args.llm_model}")
+    print(f"Alignment Dataset: {args.alignment_dataset}")
+    print(f"Instruction Dataset: {args.instruction_dataset}")
+    print(f"Output Directory: {args.output_dir}")
+    print("=" * 60)
+
+    pretrain_vlm(
+        vision_model=args.vision_model,
+        llm_model=args.llm_model,
+        alignment_dataset=args.alignment_dataset,
+        instruction_dataset=args.instruction_dataset,
+        output_dir=args.output_dir,
+        **kwargs,
+    )

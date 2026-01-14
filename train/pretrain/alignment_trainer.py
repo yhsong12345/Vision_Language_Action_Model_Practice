@@ -311,8 +311,3 @@ class AlignmentTrainer:
             )
 
             print(f"Saved checkpoint to {save_path}")
-
-
-if __name__ == "__main__":
-    print("Alignment Trainer")
-    print("Stage 1: Vision-Language Alignment")

@@ -415,8 +415,3 @@ class InstructionTrainer:
             )
 
             print(f"Saved checkpoint to {save_path}")
-
-
-if __name__ == "__main__":
-    print("Instruction Trainer")
-    print("Stage 2: Visual Instruction Tuning")
