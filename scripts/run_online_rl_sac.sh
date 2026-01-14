@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=vla_rl
-#SBATCH --comment="VLA reinforcement learning (PPO/SAC/GRPO)"
+#SBATCH --job-name=vla_sac
+#SBATCH --comment="VLA Online RL - SAC (Soft Actor-Critic)"
 #SBATCH --nodelist=cubox01,cubox02,cubox03,cubox04,cubox06,cubox07,cubox10,cubox11
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
@@ -33,7 +33,7 @@ echo "$nodes"
 # Get the IP address of the head node
 head_node=${nodes_array[0]}
 head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
-head_port=29500
+head_port=29501
 
 # NCCL network configuration (for Infiniband)
 export NCCL_SOCKET_IFNAME=eno1
@@ -49,7 +49,7 @@ srun --nodes=1 --ntasks=1 -w "$head_node" \
         --main_process_ip "$head_node_ip" \
         --main_process_port "$head_port" \
         --machine_rank 0 \
-    train/rl/ppo_trainer.py "$@" &
+    train/online_rl/sac_trainer.py "$@" &
 sleep 15
 
 # Start worker from 1 (0 is head node)
@@ -65,7 +65,7 @@ for ((i = 1; i <= worker_num; i++)); do
         --main_process_ip "$head_node_ip" \
         --main_process_port "$head_port" \
         --machine_rank "$i" \
-      train/rl/ppo_trainer.py "$@" &
+      train/online_rl/sac_trainer.py "$@" &
     sleep 5
 done
 

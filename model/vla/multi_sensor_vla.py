@@ -32,6 +32,7 @@ from model.vlm import VisionEncoder, VisionEncoderConfig, VisionProjector
 from model.sensor import PointCloudEncoder, RadarEncoder, IMUEncoder
 from model.fusion import SensorFusion
 from model.action_head import MLPActionHead
+from model.utils import freeze_module, count_parameters, count_trainable_parameters
 
 
 class MultiSensorVLA(nn.Module):
@@ -156,9 +157,7 @@ class MultiSensorVLA(nn.Module):
 
         # Freeze LLM if specified
         if freeze_llm:
-            for param in self.llm.parameters():
-                param.requires_grad = False
-            print("LLM frozen")
+            freeze_module(self.llm, verbose=True)
 
     def encode_camera(self, pixel_values: torch.Tensor) -> torch.Tensor:
         """Encode camera images."""
@@ -327,26 +326,23 @@ class MultiSensorVLA(nn.Module):
 
     def get_param_count(self) -> Dict[str, int]:
         """Get parameter counts."""
-        def count_params(module):
-            return sum(p.numel() for p in module.parameters())
-
         counts = {
-            "vision_encoder": count_params(self.vision_encoder),
-            "llm": count_params(self.llm),
-            "vision_projector": count_params(self.vision_projector),
-            "sensor_fusion": count_params(self.sensor_fusion),
-            "action_head": count_params(self.action_head),
+            "vision_encoder": count_parameters(self.vision_encoder),
+            "llm": count_parameters(self.llm),
+            "vision_projector": count_parameters(self.vision_projector),
+            "sensor_fusion": count_parameters(self.sensor_fusion),
+            "action_head": count_parameters(self.action_head),
         }
 
         if self.use_lidar:
-            counts["lidar_encoder"] = count_params(self.lidar_encoder)
+            counts["lidar_encoder"] = count_parameters(self.lidar_encoder)
         if self.use_radar:
-            counts["radar_encoder"] = count_params(self.radar_encoder)
+            counts["radar_encoder"] = count_parameters(self.radar_encoder)
         if self.use_imu:
-            counts["imu_encoder"] = count_params(self.imu_encoder)
+            counts["imu_encoder"] = count_parameters(self.imu_encoder)
 
-        counts["total"] = count_params(self)
-        counts["trainable"] = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        counts["total"] = count_parameters(self)
+        counts["trainable"] = count_trainable_parameters(self)
 
         return counts
 

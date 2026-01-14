@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from model.vlm import VisionEncoder, VisionEncoderConfig, AttentionPoolingProjector
 from model.action_head import MLPActionHead
+from model.utils import freeze_module, count_parameters, count_trainable_parameters
 
 
 class VLAModel(nn.Module):
@@ -133,13 +134,7 @@ class VLAModel(nn.Module):
 
         # Freeze LLM if specified
         if freeze_llm:
-            self._freeze_module(self.llm)
-            print("LLM frozen")
-
-    def _freeze_module(self, module: nn.Module):
-        """Freeze all parameters in a module."""
-        for param in module.parameters():
-            param.requires_grad = False
+            freeze_module(self.llm, verbose=True)
 
     def encode_image(self, pixel_values: torch.Tensor) -> torch.Tensor:
         """
@@ -274,21 +269,15 @@ class VLAModel(nn.Module):
 
     def get_param_count(self) -> Dict[str, int]:
         """Get parameter counts for each component."""
-        def count_params(module):
-            return sum(p.numel() for p in module.parameters())
-
-        def count_trainable(module):
-            return sum(p.numel() for p in module.parameters() if p.requires_grad)
-
         return {
-            "vision_encoder": count_params(self.vision_encoder),
-            "vision_encoder_trainable": count_trainable(self.vision_encoder),
-            "llm": count_params(self.llm),
-            "llm_trainable": count_trainable(self.llm),
-            "vision_projector": count_params(self.vision_projector),
-            "action_head": count_params(self.action_head),
-            "total": count_params(self),
-            "total_trainable": count_trainable(self),
+            "vision_encoder": count_parameters(self.vision_encoder),
+            "vision_encoder_trainable": count_trainable_parameters(self.vision_encoder),
+            "llm": count_parameters(self.llm),
+            "llm_trainable": count_trainable_parameters(self.llm),
+            "vision_projector": count_parameters(self.vision_projector),
+            "action_head": count_parameters(self.action_head),
+            "total": count_parameters(self),
+            "total_trainable": count_trainable_parameters(self),
         }
 
 

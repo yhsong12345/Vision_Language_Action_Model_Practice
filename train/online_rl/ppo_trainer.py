@@ -1,10 +1,11 @@
 """
-PPO (Proximal Policy Optimization) Trainer
+PPO (Proximal Policy Optimization) Trainer - Online RL
 
-Implements PPO algorithm for robot control:
+Implements PPO algorithm for online robot control:
 - Clipped surrogate objective
 - GAE for advantage estimation
 - Multiple epochs per rollout
+- Environment interaction during training
 """
 
 import os
@@ -16,22 +17,23 @@ from typing import Dict, Optional
 import numpy as np
 from tqdm import tqdm
 
-from .base_trainer import RLTrainer, RolloutBuffer, ActorCritic
+from .base_trainer import OnlineRLTrainer, RolloutBuffer, ActorCritic
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from config.training_config import RLConfig
 
 
-class PPOTrainer(RLTrainer):
+class PPOTrainer(OnlineRLTrainer):
     """
-    PPO Trainer for robot control.
+    Online PPO Trainer for robot control.
 
     Features:
     - Clipped surrogate objective
     - Value function clipping (optional)
     - Entropy bonus
     - GAE for advantage estimation
+    - Requires environment interaction
     """
 
     def __init__(
@@ -89,9 +91,9 @@ class PPOTrainer(RLTrainer):
         )
 
     def train(self):
-        """Run PPO training."""
+        """Run online PPO training with environment interaction."""
         print("=" * 60)
-        print("PPO Training")
+        print("Online PPO Training")
         print("=" * 60)
 
         obs, _ = self.env.reset()
@@ -101,7 +103,7 @@ class PPOTrainer(RLTrainer):
         progress_bar = tqdm(total=self.total_timesteps, desc="Training")
 
         while timestep < self.total_timesteps:
-            # Collect rollout
+            # Collect rollout from environment
             self.buffer.clear()
 
             for _ in range(self.rollout_steps):
@@ -172,7 +174,7 @@ class PPOTrainer(RLTrainer):
         self.save()
 
     def learn_step(self) -> Dict[str, float]:
-        """Perform PPO update."""
+        """Perform PPO update using collected rollout data."""
         total_loss = 0
         total_policy_loss = 0
         total_value_loss = 0
@@ -239,7 +241,7 @@ class PPOTrainer(RLTrainer):
         }
 
     def _store_transition(self, obs, action, reward, done, value, log_prob):
-        """Store transition (handled in collect_rollout)."""
+        """Store transition (handled in train method)."""
         pass
 
 
@@ -249,7 +251,7 @@ def train_ppo(
     **kwargs,
 ):
     """
-    Convenience function for PPO training.
+    Convenience function for online PPO training.
 
     Args:
         env_name: Gymnasium environment name
@@ -274,7 +276,7 @@ def parse_args():
     """Parse command line arguments."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="PPO Training")
+    parser = argparse.ArgumentParser(description="Online PPO Training")
 
     # Environment
     parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
@@ -300,7 +302,7 @@ def parse_args():
     parser.add_argument("--log_freq", type=int, default=1000, help="Logging frequency")
 
     # Output
-    parser.add_argument("--output_dir", type=str, default="./output/ppo", help="Output directory")
+    parser.add_argument("--output_dir", type=str, default="./output/online_ppo", help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     return parser.parse_args()
@@ -310,7 +312,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     print("=" * 60)
-    print("PPO Training")
+    print("Online PPO Training")
     print("=" * 60)
 
     # Set seed

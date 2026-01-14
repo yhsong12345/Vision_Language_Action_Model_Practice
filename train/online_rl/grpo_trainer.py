@@ -1,13 +1,11 @@
 """
-GRPO (Group Relative Policy Optimization) Trainer
+GRPO (Group Relative Policy Optimization) Trainer - Online RL
 
-Implements GRPO algorithm for VLA fine-tuning:
+Implements GRPO algorithm for VLA online fine-tuning:
 - Sample multiple outputs per prompt
-- Rank by reward
+- Rank by reward from environment
 - Optimize with relative ranking
 - Particularly suited for language model based policies
-
-This is the RL method used by DeepSeek and similar models.
 """
 
 import os
@@ -25,43 +23,30 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from config.training_config import RLConfig
 
 
-@dataclass
-class GRPOSample:
-    """A single sample for GRPO training."""
-    observation: torch.Tensor
-    instruction: str
-    actions: List[torch.Tensor]  # Multiple action samples
-    rewards: List[float]  # Reward for each sample
-    log_probs: List[torch.Tensor]  # Log probs for each sample
-
-
 class GRPOTrainer:
     """
-    GRPO Trainer for VLA models.
+    Online GRPO Trainer for VLA models.
 
     GRPO (Group Relative Policy Optimization) works by:
-    1. Sampling multiple action sequences per observation
-    2. Computing rewards for each sequence
+    1. Sampling multiple action sequences per observation from environment
+    2. Computing rewards for each sequence via environment interaction
     3. Ranking samples by reward
     4. Optimizing policy to increase probability of high-reward samples
 
-    This is particularly effective for VLA models where the action
-    space is continuous and high-dimensional.
-
-    Reference: DeepSeek-R1 and similar papers on relative reward optimization.
+    This version interacts with the environment to get real rewards.
     """
 
     def __init__(
         self,
         model,
-        reward_fn,
+        env,
         config: Optional[RLConfig] = None,
         reference_model: Optional[nn.Module] = None,
     ):
         """
         Args:
             model: VLA model to train
-            reward_fn: Function(obs, actions) -> reward
+            env: Environment for getting rewards
             config: Training configuration
             reference_model: Optional frozen reference for KL penalty
         """
@@ -69,7 +54,7 @@ class GRPOTrainer:
             config = RLConfig.grpo_vla()
 
         self.model = model
-        self.reward_fn = reward_fn
+        self.env = env
         self.config = config
 
         # Device
@@ -85,8 +70,9 @@ class GRPOTrainer:
             self.ref_model = None
 
         # GRPO specific params
-        self.group_size = config.grpo_group_size  # Samples per prompt
+        self.group_size = config.grpo_group_size
         self.kl_coef = config.grpo_kl_coef
+        self.total_timesteps = config.total_timesteps
 
         # Optimizer
         self.optimizer = AdamW(
@@ -97,6 +83,9 @@ class GRPOTrainer:
 
         # Output directory
         os.makedirs(config.output_dir, exist_ok=True)
+
+        # Statistics
+        self.episode_rewards = []
 
     def sample_actions(
         self,
@@ -130,7 +119,7 @@ class GRPOTrainer:
                 action_mean = outputs["predicted_actions"]
 
                 # Add noise for exploration
-                action_std = 0.1  # Can be learned
+                action_std = 0.1
                 noise = torch.randn_like(action_mean) * action_std
                 action = action_mean + noise
 
@@ -144,6 +133,28 @@ class GRPOTrainer:
 
         self.model.train()
         return actions_list, log_probs_list
+
+    def get_env_reward(
+        self,
+        observation: Dict[str, torch.Tensor],
+        action: torch.Tensor,
+    ) -> float:
+        """
+        Execute action in environment and get reward.
+
+        Args:
+            observation: Current observation
+            action: Action to execute
+
+        Returns:
+            reward: Environment reward
+        """
+        action_np = action.cpu().numpy()
+        if action_np.ndim > 1:
+            action_np = action_np[0]
+
+        _, reward, _, _, _ = self.env.step(action_np)
+        return reward
 
     def compute_advantages(
         self,
@@ -246,7 +257,7 @@ class GRPOTrainer:
         observation: Dict[str, torch.Tensor],
     ) -> Dict[str, float]:
         """
-        Perform one GRPO training step.
+        Perform one online GRPO training step.
 
         Args:
             observation: Input observation with image and instruction
@@ -257,10 +268,10 @@ class GRPOTrainer:
         # Sample multiple actions
         actions, old_log_probs = self.sample_actions(observation, self.group_size)
 
-        # Get rewards for each action
+        # Get rewards from environment for each action
         rewards = []
         for action in actions:
-            reward = self.reward_fn(observation, action)
+            reward = self.get_env_reward(observation, action)
             rewards.append(reward)
 
         # Compute advantages
@@ -284,21 +295,16 @@ class GRPOTrainer:
 
     def train(
         self,
-        train_dataloader,
-        num_epochs: int = None,
+        num_episodes: int = 1000,
     ):
         """
-        Run GRPO training.
+        Run online GRPO training with environment interaction.
 
         Args:
-            train_dataloader: DataLoader providing observations
-            num_epochs: Number of training epochs
+            num_episodes: Number of episodes to train
         """
-        if num_epochs is None:
-            num_epochs = self.config.num_epochs
-
         print("=" * 60)
-        print("GRPO Training")
+        print("Online GRPO Training")
         print("=" * 60)
         print(f"Group size: {self.group_size}")
         print(f"KL coefficient: {self.kl_coef}")
@@ -306,45 +312,91 @@ class GRPOTrainer:
         best_reward = float("-inf")
         global_step = 0
 
-        for epoch in range(num_epochs):
-            epoch_metrics = {"loss": [], "mean_reward": [], "max_reward": []}
+        progress_bar = tqdm(range(num_episodes), desc="Training")
 
-            progress_bar = tqdm(
-                train_dataloader,
-                desc=f"Epoch {epoch + 1}/{num_epochs}",
-            )
+        for episode in progress_bar:
+            # Reset environment
+            obs, _ = self.env.reset()
 
-            for batch in progress_bar:
-                # Move to device
-                observation = {
-                    k: v.to(self.device) for k, v in batch.items()
-                }
+            episode_reward = 0
+            episode_length = 0
+            done = False
+
+            while not done:
+                # Convert observation to model input format
+                # This depends on your specific observation format
+                observation = self._prepare_observation(obs)
 
                 # Training step
                 metrics = self.train_step(observation)
 
-                for k, v in metrics.items():
-                    if k in epoch_metrics:
-                        epoch_metrics[k].append(v)
+                # Take best action for environment step
+                with torch.no_grad():
+                    self.model.eval()
+                    outputs = self.model(
+                        pixel_values=observation["pixel_values"],
+                        input_ids=observation["input_ids"],
+                        attention_mask=observation["attention_mask"],
+                    )
+                    action = outputs["predicted_actions"]
+                    self.model.train()
 
+                # Environment step
+                obs, reward, terminated, truncated, _ = self.env.step(action.cpu().numpy()[0])
+                done = terminated or truncated
+
+                episode_reward += reward
+                episode_length += 1
                 global_step += 1
 
-                progress_bar.set_postfix({
-                    "loss": f"{metrics['loss']:.4f}",
-                    "reward": f"{metrics['mean_reward']:.3f}",
-                })
+            self.episode_rewards.append(episode_reward)
 
-                # Save best model
-                if metrics["mean_reward"] > best_reward:
-                    best_reward = metrics["mean_reward"]
-                    self.save(os.path.join(self.config.output_dir, "best_model.pt"))
+            progress_bar.set_postfix({
+                "reward": f"{episode_reward:.2f}",
+                "avg_reward": f"{np.mean(self.episode_rewards[-100:]):.2f}",
+            })
 
-            # Epoch summary
-            avg_reward = np.mean(epoch_metrics["mean_reward"])
-            print(f"Epoch {epoch + 1} - Avg Reward: {avg_reward:.4f}")
+            # Save best model
+            if episode_reward > best_reward:
+                best_reward = episode_reward
+                self.save(os.path.join(self.config.output_dir, "best_model.pt"))
+
+            # Periodic checkpoint
+            if episode % 100 == 0:
+                self.save(os.path.join(self.config.output_dir, f"model_{episode}.pt"))
 
         # Save final model
         self.save(os.path.join(self.config.output_dir, "final_model.pt"))
+
+    def _prepare_observation(self, obs) -> Dict[str, torch.Tensor]:
+        """
+        Prepare environment observation for model input.
+
+        Override this method based on your specific observation format.
+        """
+        # Default implementation assumes obs is an image
+        if isinstance(obs, np.ndarray):
+            # Assume image observation
+            pixel_values = torch.tensor(obs, dtype=torch.float32)
+            if pixel_values.dim() == 3:
+                pixel_values = pixel_values.permute(2, 0, 1)  # HWC -> CHW
+            pixel_values = pixel_values.unsqueeze(0).to(self.device)
+
+            # Dummy text input
+            input_ids = torch.zeros(1, 32, dtype=torch.long, device=self.device)
+            attention_mask = torch.ones(1, 32, device=self.device)
+        else:
+            # Handle dict observation
+            pixel_values = torch.tensor(obs.get("image", np.zeros((3, 224, 224))),
+                                       dtype=torch.float32).unsqueeze(0).to(self.device)
+            input_ids = torch.zeros(1, 32, dtype=torch.long, device=self.device)
+            attention_mask = torch.ones(1, 32, device=self.device)
+
+        return {
+            "pixel_values": pixel_values,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
 
     def save(self, path: str):
         """Save model."""
@@ -357,57 +409,23 @@ class GRPOTrainer:
         print(f"Loaded model from {path}")
 
 
-class SimpleRewardFunction:
-    """
-    Simple reward function for VLA training.
-
-    Can be used for:
-    - Task completion rewards
-    - Distance-based rewards
-    - Safety constraint rewards
-    """
-
-    def __init__(
-        self,
-        target_action: Optional[torch.Tensor] = None,
-        reward_type: str = "distance",
-    ):
-        self.target_action = target_action
-        self.reward_type = reward_type
-
-    def __call__(
-        self,
-        observation: Dict[str, torch.Tensor],
-        action: torch.Tensor,
-    ) -> float:
-        if self.reward_type == "distance" and self.target_action is not None:
-            # Negative distance to target
-            distance = torch.norm(action - self.target_action.to(action.device))
-            return -distance.item()
-
-        elif self.reward_type == "smoothness":
-            # Reward smooth actions (low magnitude)
-            return -torch.norm(action).item()
-
-        else:
-            # Default: random reward for testing
-            return np.random.randn()
-
-
 def parse_args():
     """Parse command line arguments."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="GRPO Training for VLA")
+    parser = argparse.ArgumentParser(description="Online GRPO Training for VLA")
 
     # Model
-    parser.add_argument("--model_path", type=str, required=True, help="Path to VLA model")
+    parser.add_argument("--model_path", type=str, default=None, help="Path to VLA model")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+
+    # Environment
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Gymnasium environment")
 
     # GRPO parameters
     parser.add_argument("--grpo_group_size", type=int, default=8, help="Samples per prompt")
     parser.add_argument("--grpo_kl_coef", type=float, default=0.1, help="KL divergence coefficient")
-    parser.add_argument("--num_epochs", type=int, default=10, help="Training epochs")
+    parser.add_argument("--num_episodes", type=int, default=1000, help="Training episodes")
 
     # Training
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
@@ -415,16 +433,8 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay")
     parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm")
 
-    # Data
-    parser.add_argument("--dataset", type=str, default="lerobot/pusht", help="Dataset name")
-    parser.add_argument("--max_samples", type=int, default=1000, help="Maximum samples")
-
-    # Reward
-    parser.add_argument("--reward_type", type=str, default="smoothness",
-                        choices=["distance", "smoothness"], help="Reward function type")
-
     # Output
-    parser.add_argument("--output_dir", type=str, default="./output/grpo", help="Output directory")
+    parser.add_argument("--output_dir", type=str, default="./output/online_grpo", help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     return parser.parse_args()
@@ -434,81 +444,18 @@ if __name__ == "__main__":
     args = parse_args()
 
     print("=" * 60)
-    print("GRPO Training for VLA")
+    print("Online GRPO Training for VLA")
     print("=" * 60)
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    # Import VLA model
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    from model.vla import VLAModel
-    from model.vla.vla_model import VLAConfig
+    # Create simple test model and environment
+    import gymnasium as gym
+    env = gym.make(args.env)
 
-    # Load VLA model
-    model_config = VLAConfig()
-    model = VLAModel(model_config)
+    print(f"Environment: {args.env}")
+    print(f"Number of episodes: {args.num_episodes}")
 
-    if os.path.exists(args.model_path):
-        state_dict = torch.load(args.model_path, map_location="cpu")
-        model.load_state_dict(state_dict, strict=False)
-        print(f"Loaded VLA model from {args.model_path}")
-    else:
-        print(f"Warning: Model path {args.model_path} not found, using random init")
-
-    config = RLConfig(
-        algorithm="grpo",
-        num_epochs=args.num_epochs,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        max_grad_norm=args.max_grad_norm,
-        grpo_group_size=args.grpo_group_size,
-        grpo_kl_coef=args.grpo_kl_coef,
-        batch_size=args.batch_size,
-        output_dir=args.output_dir,
-    )
-
-    reward_fn = SimpleRewardFunction(reward_type=args.reward_type)
-    trainer = GRPOTrainer(model, reward_fn, config=config)
-
-    if args.resume:
-        trainer.load(args.resume)
-
-    # Load dataset
-    try:
-        from train.finetune.dataset import RobotDataset
-        from torch.utils.data import DataLoader
-
-        dataset = RobotDataset(dataset_name=args.dataset, max_samples=args.max_samples)
-        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-
-        print(f"Dataset: {args.dataset}, Samples: {len(dataset)}")
-        trainer.train(dataloader, num_epochs=args.num_epochs)
-
-    except Exception as e:
-        print(f"Error loading dataset: {e}")
-        print("Creating dummy data for testing...")
-
-        from torch.utils.data import DataLoader, TensorDataset
-
-        dummy_dataset = TensorDataset(
-            torch.randn(100, 3, 224, 224),
-            torch.randint(0, 1000, (100, 32)),
-            torch.ones(100, 32),
-        )
-
-        class DictDataLoader:
-            def __init__(self, loader):
-                self.loader = loader
-
-            def __iter__(self):
-                for pv, ids, mask in self.loader:
-                    yield {"pixel_values": pv, "input_ids": ids, "attention_mask": mask}
-
-            def __len__(self):
-                return len(self.loader)
-
-        dataloader = DictDataLoader(DataLoader(dummy_dataset, batch_size=args.batch_size))
-        trainer.train(dataloader, num_epochs=args.num_epochs)
-
-    print("\nTraining complete!")
+    print("\nNote: Full VLA GRPO training requires VLA model and appropriate environment.")
+    print("This script demonstrates the online GRPO training loop.")

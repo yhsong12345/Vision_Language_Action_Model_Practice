@@ -1,7 +1,8 @@
 """
-Base RL Trainer
+Base Online RL Trainer
 
-Abstract base class for reinforcement learning trainers.
+Abstract base class for online reinforcement learning trainers.
+Provides common functionality for environment interaction and learning.
 """
 
 import os
@@ -15,7 +16,7 @@ import json
 
 
 class RolloutBuffer:
-    """Buffer for storing rollout data."""
+    """Buffer for storing on-policy rollout data (PPO, A2C, etc.)."""
 
     def __init__(self, buffer_size: int, obs_dim: int, action_dim: int, device: str = "cpu"):
         self.buffer_size = buffer_size
@@ -103,7 +104,7 @@ class RolloutBuffer:
 
 
 class ReplayBuffer:
-    """Experience replay buffer for off-policy algorithms."""
+    """Experience replay buffer for off-policy algorithms (SAC, TD3, etc.)."""
 
     def __init__(
         self,
@@ -155,9 +156,9 @@ class ReplayBuffer:
         }
 
 
-class RLTrainer(ABC):
+class OnlineRLTrainer(ABC):
     """
-    Abstract base class for RL trainers.
+    Abstract base class for online RL trainers.
 
     Provides common functionality:
     - Environment interaction
@@ -170,7 +171,7 @@ class RLTrainer(ABC):
         self,
         env,
         policy,
-        output_dir: str = "./rl_output",
+        output_dir: str = "./online_rl_output",
         device: str = "auto",
         seed: int = 42,
         gamma: float = 0.99,
@@ -383,5 +384,5 @@ class ActorCritic(nn.Module):
 
 
 if __name__ == "__main__":
-    print("RL Base Trainer")
-    print("Abstract class providing common RL functionality")
+    print("Online RL Base Trainer")
+    print("Abstract class providing common online RL functionality")

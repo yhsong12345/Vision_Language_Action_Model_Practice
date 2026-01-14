@@ -1,10 +1,11 @@
 """
-SAC (Soft Actor-Critic) Trainer
+SAC (Soft Actor-Critic) Trainer - Online RL
 
-Implements SAC algorithm for continuous robot control:
+Implements SAC algorithm for online continuous robot control:
 - Maximum entropy RL
 - Twin Q-networks
 - Automatic temperature tuning
+- Environment interaction during training
 """
 
 import os
@@ -17,7 +18,7 @@ import numpy as np
 from tqdm import tqdm
 import copy
 
-from .base_trainer import RLTrainer, ReplayBuffer
+from .base_trainer import OnlineRLTrainer, ReplayBuffer
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -110,15 +111,16 @@ class TwinQNetwork(nn.Module):
         return self.q1(x)
 
 
-class SACTrainer(RLTrainer):
+class SACTrainer(OnlineRLTrainer):
     """
-    SAC Trainer for continuous robot control.
+    Online SAC Trainer for continuous robot control.
 
     Features:
     - Maximum entropy RL for exploration
     - Twin Q-networks to reduce overestimation
     - Automatic temperature (alpha) tuning
     - Soft target updates
+    - Requires environment interaction
     """
 
     def __init__(
@@ -190,9 +192,9 @@ class SACTrainer(RLTrainer):
         )
 
     def train(self):
-        """Run SAC training."""
+        """Run online SAC training with environment interaction."""
         print("=" * 60)
-        print("SAC Training")
+        print("Online SAC Training")
         print("=" * 60)
 
         obs, _ = self.env.reset()
@@ -327,39 +329,11 @@ class SACTrainer(RLTrainer):
         pass
 
 
-def train_sac(
-    env_name: str = "Pendulum-v1",
-    total_timesteps: int = 100000,
-    **kwargs,
-):
-    """
-    Convenience function for SAC training.
-
-    Args:
-        env_name: Gymnasium environment name (continuous action space)
-        total_timesteps: Total training timesteps
-        **kwargs: Additional config arguments
-    """
-    import gymnasium as gym
-
-    env = gym.make(env_name)
-    config = RLConfig(
-        algorithm="sac",
-        total_timesteps=total_timesteps,
-        **kwargs,
-    )
-
-    trainer = SACTrainer(env, config=config)
-    trainer.train()
-
-    return trainer.policy
-
-
 def parse_args():
     """Parse command line arguments."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="SAC Training")
+    parser = argparse.ArgumentParser(description="Online SAC Training")
 
     # Environment
     parser.add_argument("--env", type=str, default="Pendulum-v1", help="Gymnasium environment (continuous)")
@@ -384,7 +358,7 @@ def parse_args():
     parser.add_argument("--log_freq", type=int, default=1000, help="Logging frequency")
 
     # Output
-    parser.add_argument("--output_dir", type=str, default="./output/sac", help="Output directory")
+    parser.add_argument("--output_dir", type=str, default="./output/online_sac", help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     return parser.parse_args()
@@ -394,7 +368,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     print("=" * 60)
-    print("SAC Training")
+    print("Online SAC Training")
     print("=" * 60)
 
     torch.manual_seed(args.seed)

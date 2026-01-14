@@ -5,6 +5,10 @@ Abstract base class for imitation learning trainers.
 """
 
 import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
@@ -12,6 +16,9 @@ from typing import Optional, Dict, Any, List, Tuple
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from collections import deque
+
+# Import shared utilities
+from train.utils import get_device, evaluate_policy as _evaluate_policy
 
 
 class ExpertDataset(Dataset):
@@ -163,12 +170,8 @@ class ILTrainer(ABC):
 
         self.policy = policy
 
-        # Set device
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-
+        # Set device using shared utility
+        self.device = get_device(device)
         self.policy = self.policy.to(self.device)
 
         # Set seeds

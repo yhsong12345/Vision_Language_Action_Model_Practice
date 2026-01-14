@@ -1,7 +1,7 @@
 """
 Model Package
 
-This package contains all model components for VLA (Vision-Language-Action) models:
+VLA (Vision-Language-Action) model components:
 
 Submodules:
 - vlm/: Vision-Language Model components (vision encoders, projectors)
@@ -9,6 +9,11 @@ Submodules:
 - action_head/: Action prediction heads (MLP, Diffusion, Transformer)
 - sensor/: Sensor encoders (LiDAR, Radar, IMU)
 - fusion/: Multi-modal sensor fusion modules
+- temporal/: Temporal encoding and memory modules
+- world_model/: World modeling for model-based RL
+- safety/: Safety constraints and action filtering
+- embodiment/: Embodiment-specific models (Driving, Humanoid)
+- utils/: Shared utilities (parameter management, checkpointing, device handling)
 """
 
 # VLM components
@@ -32,11 +37,23 @@ from .vla import (
 
 # Action heads
 from .action_head import (
+    ActionHeadBase,
     MLPActionHead,
     GaussianMLPActionHead,
     DiffusionActionHead,
     TransformerActionHead,
     GPTActionHead,
+)
+
+# Utilities
+from .utils import (
+    freeze_module,
+    unfreeze_module,
+    count_parameters,
+    count_trainable_parameters,
+    get_device,
+    save_checkpoint,
+    load_checkpoint,
 )
 
 # Sensor encoders
@@ -58,6 +75,41 @@ from .fusion import (
     GatedFusion,
 )
 
+# Temporal modules
+from .temporal import (
+    TemporalEncoder,
+    TemporalTransformer,
+    TemporalLSTM,
+    MemoryBuffer,
+    EpisodicMemory,
+    WorkingMemory,
+    HistoryEncoder,
+)
+
+# World model
+from .world_model import (
+    DynamicsModel,
+    LatentWorldModel,
+    RSSM,
+    RewardPredictor,
+)
+
+# Safety
+from .safety import (
+    SafetyShield,
+    RuleChecker,
+    ConstraintHandler,
+)
+
+# Embodiment
+from .embodiment import (
+    DrivingVLA,
+    BEVEncoder,
+    TrajectoryDecoder,
+    HumanoidVLA,
+    WholeBodyController,
+)
+
 __all__ = [
     # VLM
     "VisionEncoder",
@@ -73,11 +125,20 @@ __all__ = [
     "OpenVLAWrapper",
     "SmolVLAWrapper",
     # Action heads
+    "ActionHeadBase",
     "MLPActionHead",
     "GaussianMLPActionHead",
     "DiffusionActionHead",
     "TransformerActionHead",
     "GPTActionHead",
+    # Utilities
+    "freeze_module",
+    "unfreeze_module",
+    "count_parameters",
+    "count_trainable_parameters",
+    "get_device",
+    "save_checkpoint",
+    "load_checkpoint",
     # Sensors
     "PointCloudEncoder",
     "PointNetEncoder",
@@ -91,4 +152,27 @@ __all__ = [
     "CrossModalFusion",
     "HierarchicalFusion",
     "GatedFusion",
+    # Temporal
+    "TemporalEncoder",
+    "TemporalTransformer",
+    "TemporalLSTM",
+    "MemoryBuffer",
+    "EpisodicMemory",
+    "WorkingMemory",
+    "HistoryEncoder",
+    # World Model
+    "DynamicsModel",
+    "LatentWorldModel",
+    "RSSM",
+    "RewardPredictor",
+    # Safety
+    "SafetyShield",
+    "RuleChecker",
+    "ConstraintHandler",
+    # Embodiment
+    "DrivingVLA",
+    "BEVEncoder",
+    "TrajectoryDecoder",
+    "HumanoidVLA",
+    "WholeBodyController",
 ]
