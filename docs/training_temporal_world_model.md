@@ -2572,10 +2572,10 @@ This guide covered the complete training pipeline for temporal and world model V
 | **Stage 2: World Model Training** | Visual D4RL (VD4RL) | [conglu/vd4rl](https://huggingface.co/datasets/conglu/vd4rl) | Pixel-based offline RL benchmarks |
 | **Stage 3: Latent Dynamics Learning** | Robot manipulation data | [lerobot on HuggingFace](https://huggingface.co/lerobot) | Action-conditioned state transitions |
 | **Stage 4a: Online RL (Planning)** | MuJoCo/Isaac Gym | [mujoco.org](https://mujoco.org/) / [isaac-gym](https://developer.nvidia.com/isaac-gym) | Real-time simulation for imagination-based PPO/SAC training |
-| **Stage 4a: Online RL (MPC)** | Online rollouts | Varies | MPC trajectory optimization with real-time world model |
+| **Stage 4a: Online RL (MPC)** | MuJoCo/Isaac Gym | [mujoco.org](https://mujoco.org/) / [isaac-gym](https://developer.nvidia.com/isaac-gym) | MPC trajectory optimization with real-time world model |
 | **Stage 4b: Offline RL (Planning)** | D4RL | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | Offline data for CQL/IQL imagination-based training |
 | **Stage 4b: Offline RL (Planning)** | Visual D4RL (VD4RL) | [conglu/vd4rl](https://huggingface.co/datasets/conglu/vd4rl) | Pixel-based offline trajectories for Decision Transformer |
-| **Stage 5: Policy Learning** | Imagined trajectories | Varies | Dyna-style training with world model |
+| **Stage 5: Policy Learning** | Visual D4RL (VD4RL) | [conglu/vd4rl](https://huggingface.co/datasets/conglu/vd4rl) | Dyna-style training with world model |
 | **Evaluation** | D4RL MuJoCo | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | Walker, Cheetah, Humanoid benchmarks |
 | **Evaluation** | MetaWorld | [lerobot/metaworld_mt50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task manipulation |
 | **Video Prediction** | RoboNet | [jxu124/OpenX-Embodiment](https://huggingface.co/datasets/jxu124/OpenX-Embodiment) (subset) | Robot video prediction |

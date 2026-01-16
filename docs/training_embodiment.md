@@ -1464,8 +1464,8 @@ This guide covered embodiment-specific VLA training:
 
 | Training Stage | Dataset | Public Source | Description |
 |----------------|---------|---------------|-------------|
-| **Proprioception Pretraining** | Robot-specific data | Varies | Next state prediction and action reconstruction |
-| **Vision-Proprio Alignment** | Vision-Proprioception pairs | Varies | Contrastive learning between vision and proprioception |
+| **Proprioception Pretraining** | LeRobot | [lerobot on HuggingFace](https://huggingface.co/lerobot) | Next state prediction and action reconstruction |
+| **Vision-Proprio Alignment** | RoboMimic | [amandlek/robomimic](https://huggingface.co/datasets/amandlek/robomimic) | Contrastive learning between vision and proprioception |
 | **Cross-Embodiment Training** | Open X-Embodiment | [jxu124/OpenX-Embodiment](https://huggingface.co/datasets/jxu124/OpenX-Embodiment) | 1M+ episodes, 22+ robot types (1.13TB) |
 | **Task-Specific Training** | LeRobot | [lerobot on HuggingFace](https://huggingface.co/lerobot) | 100K+ episodes for manipulation tasks |
 | **Task-Specific Training** | RoboMimic | [amandlek/robomimic](https://huggingface.co/datasets/amandlek/robomimic) | Simulated manipulation demonstrations |

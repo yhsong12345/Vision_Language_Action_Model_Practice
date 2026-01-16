@@ -2639,7 +2639,7 @@ This guide covered the complete training pipeline for autonomous driving VLA:
 | **Stage 4b: Offline RL** | Lyft Level 5 | [woven-planet/l5kit](https://github.com/woven-planet/l5kit) | 1000+ hours of driving data for Decision Transformer training |
 | **Stage 5: Safety Training** | CARLA Segmentation | [nightmare-nectarine/segmentation-carla-driving](https://huggingface.co/datasets/nightmare-nectarine/segmentation-carla-driving) | 80 episodes for imitation learning |
 | **Stage 6: Simulation Training** | NVIDIA PhysicalAI-AV | [nvidia/PhysicalAI-Autonomous-Vehicles](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles) | Autonomous vehicle simulation data |
-| **Stage 7: Domain Adaptation** | Real driving logs | Varies | Fine-tuning for deployment |
+| **Stage 7: Domain Adaptation** | A2D2 | [audi.com/a2d2](https://www.a2d2.audi/a2d2/en.html) | Fine-tuning for deployment with real driving data |
 | **Evaluation** | nuScenes test split | [nuscenes.org](https://www.nuscenes.org/) | minADE, minFDE, collision rate |
 | **Evaluation** | CARLA benchmarks | [carla.org](https://carla.org/) | Route completion, infraction score |
 

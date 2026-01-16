@@ -2601,19 +2601,19 @@ This guide covered the complete training pipeline for humanoid VLA:
 
 | Training Stage | Dataset | Public Source | Description |
 |----------------|---------|---------------|-------------|
-| **Stage 1: VLM Foundation** | Humanoid-specific instruction data | Custom | Visual instructions for manipulation, navigation, gestures |
+| **Stage 1: VLM Foundation** | LLaVA-Instruct-150K | [liuhaotian/LLaVA-Instruct-150K](https://huggingface.co/datasets/liuhaotian/LLaVA-Instruct-150K) | Visual instructions for manipulation, navigation, gestures |
 | **Stage 2: Motion Primitive Learning** | CMU Motion Capture Database | [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu/) | Human motion capture for diverse activities |
 | **Stage 2: Motion Primitive Learning** | Human3.6M | [vision.imar.ro/human3.6m](http://vision.imar.ro/human3.6m/) | 3.6M+ 3D human poses with actions (registration required) |
 | **Stage 2: Motion Primitive Learning** | AMASS | [amass.is.tue.mpg.de](https://amass.is.tue.mpg.de/) | 40+ hours of motion data, 300+ subjects (includes CMU) |
 | **Stage 2: Motion Primitive Learning** | Habitat Humanoids (AMASS subset) | [ai-habitat/habitat_humanoids](https://huggingface.co/datasets/ai-habitat/habitat_humanoids) | Motion clips from AMASS for simulation |
 | **Stage 3: Locomotion Training** | D4RL MuJoCo | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | Ant, Humanoid, HalfCheetah locomotion data |
-| **Stage 4: Manipulation Training** | Teleoperation demonstrations | Varies | VR/MoCap suit collected data |
-| **Stage 5: Whole-Body Control** | Loco-manipulation datasets | Varies | Combined locomotion and manipulation |
+| **Stage 4: Manipulation Training** | DROID | [cadene/droid](https://huggingface.co/datasets/cadene/droid) | VR/MoCap suit collected teleoperation data |
+| **Stage 5: Whole-Body Control** | HumanoidBench | [humanoid-bench.github.io](https://humanoid-bench.github.io/) | Combined locomotion and manipulation |
 | **Stage 6a: Online RL** | MuJoCo/Isaac Gym | [mujoco.org](https://mujoco.org/) / [isaac-gym](https://developer.nvidia.com/isaac-gym) | Real-time simulation for PPO/SAC humanoid policy learning |
 | **Stage 6a: Online RL (AMP)** | Reference motion clips | [amass.is.tue.mpg.de](https://amass.is.tue.mpg.de/) | MoCap data for adversarial motion priors in simulation |
 | **Stage 6b: Offline RL** | D4RL Humanoid | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | Humanoid locomotion trajectories for CQL/IQL training |
 | **Stage 6b: Offline RL** | HumanoidBench | [humanoid-bench.github.io](https://humanoid-bench.github.io/) | Offline humanoid manipulation and locomotion data |
-| **Stage 7: HRI Training** | Human-robot interaction demonstrations | Varies | Handover and collaborative task data |
+| **Stage 7: HRI Training** | HandoverSim | [handoversim.github.io](https://handoversim.github.io/) | Handover and collaborative task data |
 
 ---
 

@@ -671,7 +671,7 @@ python run.py list
 | **Stage 3a: Online RL** | CARLA Simulator | [carla.org](https://carla.org/) | Driving simulation for online policy learning |
 | **Stage 3b: Offline RL** | D4RL | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | 12 standardized offline RL benchmark tasks for CQL/IQL training |
 | **Stage 3b: Offline RL** | Visual D4RL (VD4RL) | [conglu/vd4rl](https://huggingface.co/datasets/conglu/vd4rl) | Pixel-based offline RL for Decision Transformer |
-| **Stage 3b: Offline RL** | Robot trajectory data | Varies | Environment-specific trajectory datasets for world model training |
+| **Stage 3b: Offline RL** | RoboMimic | [amandlek/robomimic](https://huggingface.co/datasets/amandlek/robomimic) | Environment-specific trajectory datasets for world model training |
 
 ---
 

@@ -2434,7 +2434,7 @@ This guide covered the complete training pipeline for multi-sensor VLA:
 | Training Stage | Dataset | Public Source | Description |
 |----------------|---------|---------------|-------------|
 | **Stage 1: RGB Pretraining** | ImageNet | [imagenet.org](https://www.image-net.org/) | Standard vision pretraining |
-| **Stage 1: RGB Pretraining** | Robot-specific image data | Varies | In-domain visual data |
+| **Stage 1: RGB Pretraining** | RoboNet | [jxu124/OpenX-Embodiment](https://huggingface.co/datasets/jxu124/OpenX-Embodiment) | In-domain visual data from robot cameras |
 | **Stage 1: Depth Pretraining** | NYU Depth v2 | [sayakpaul/nyu_depth_v2](https://huggingface.co/datasets/sayakpaul/nyu_depth_v2) | Indoor RGB-D with 464 scenes |
 | **Stage 1: Depth Pretraining** | ScanNet | [yuchen0187/scannet](https://huggingface.co/datasets/yuchen0187/scannet) | 3D indoor scene reconstruction (776MB) |
 | **Stage 1: Depth Pretraining** | Matterport3D | [matterport.com/research](https://matterport.com/partners/research) | Large-scale indoor RGB-D |

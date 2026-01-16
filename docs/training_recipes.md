@@ -732,7 +732,7 @@ config.llm = "qwen2-0.5b"
 | **Recipe 5: nuScenes Prediction** | nuScenes | [OpenDriveLab/DriveLM](https://huggingface.co/datasets/OpenDriveLab/DriveLM) | 1000 scenes, 6 cameras, LiDAR, Radar |
 | **Recipe 6: MuJoCo Humanoid** | D4RL MuJoCo | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | Ant, Humanoid, HalfCheetah locomotion |
 | **Recipe 6: MuJoCo Humanoid** | Motion capture (AMASS) | [amass.is.tue.mpg.de](https://amass.is.tue.mpg.de/) | BC initialization from MoCap |
-| **Recipe 7: Whole-Body Manipulation** | Human demonstrations | Varies | GAIL adversarial imitation |
+| **Recipe 7: Whole-Body Manipulation** | ALOHA | [tonyzhaozh/aloha](https://huggingface.co/datasets/tonyzhaozh/aloha) | GAIL adversarial imitation |
 | **Recipe 8: D4RL Offline RL** | D4RL | [imone/D4RL](https://huggingface.co/datasets/imone/D4RL) | hopper-medium-v2, walker2d, etc. |
 | **Recipe 9: MetaWorld Multi-Task** | MetaWorld MT50 | [lerobot/metaworld_mt50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | 50 manipulation tasks, 2500 episodes |
 
